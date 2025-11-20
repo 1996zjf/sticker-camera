@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI 抠图 (混合加速版)</title>
+    <title>AI 抠图 (最终修复版)</title>
     <style>
         body { background: #2d3436; color: white; margin: 0; padding: 10px; font-family: sans-serif; text-align: center; }
         .camera-wrapper { 
@@ -23,18 +23,27 @@
         .btn { padding: 15px 40px; font-size: 18px; border-radius: 50px; background: #6c5ce7; color: white; border: none; font-weight: bold; margin-bottom: 160px; }
         .btn:disabled { background: #636e72; }
     </style>
+
+    <!-- === 关键修复：补全缺失的依赖 (国内源) === -->
+    <script type="importmap">
+    {
+        "imports": {
+            "lodash": "https://npm.elemecdn.com/lodash-es@4.17.21/lodash.js",
+            "onnxruntime-web": "https://npm.elemecdn.com/onnxruntime-web@1.15.1/dist/ort.es6.min.js"
+        }
+    }
+    </script>
 </head>
 <body>
-    <h3>🚀 混合加载模式</h3>
+    <h3>🧪 依赖注入模式</h3>
     <div class="camera-wrapper">
         <video id="video" autoplay playsinline muted></video>
         <canvas id="resultCanvas"></canvas>
     </div>
     <button id="captureBtn" class="btn" onclick="runCapture()">📸 拍照</button>
-    <div id="console-box">初始化...<br></div>
+    <div id="console-box">正在连接本地文件...<br></div>
 
     <script>
-        // 日志工具
         const logBox = document.getElementById('console-box');
         function log(msg, color = '#fab1a0') {
             logBox.innerHTML += `<div style="color:${color}">> ${msg}</div>`;
@@ -43,21 +52,31 @@
         window.appLog = log;
     </script>
 
-    <!-- === 关键修改：从 esm.sh 加载自带依赖的 JS === -->
+    <!-- === 核心逻辑：加载本地 imgly.js === -->
     <script type="module">
         try {
-            log("☁️ 正在从网络加载主程序 (esm.sh)...", "#fff");
+            log("🔄 正在导入本地 imgly.js...", "#fff");
             
-            // 使用 1.4.0 版本以匹配你的本地数据
-            import imglyRemoveBackground from 'https://esm.sh/@imgly/background-removal@1.4.0';
-            
-            window.imglyLib = imglyRemoveBackground;
-            log("✅ JS 主程序加载成功！", "#00b894");
-            log("📂 模型数据将从【本地 GitHub】读取", "#00b894");
+            // 这次导入会利用上面的 importmap 自动去下载 lodash
+            import * as Module from './imgly.js';
+
+            // 兼容性查找：不同的打包方式导出名可能不同
+            const mainFn = Module.default || Module.removeBackground || Module.imglyRemoveBackground;
+
+            if (mainFn) {
+                window.imglyLib = mainFn;
+                log("✅ 核心库加载成功！依赖已修复。", "#00b894");
+                log("👉 请点击拍照测试", "#00b894");
+            } else {
+                log("⚠️ 警告：JS加载了但找不到入口。", "yellow");
+                console.log(Module);
+            }
 
         } catch (e) {
-            log("❌ JS 加载失败: " + e.message, "red");
-            log("请检查网络连接", "red");
+            log("❌ 加载失败: " + e.message, "red");
+            if (e.message.includes("lodash")) {
+                log("提示：依赖映射失败，请检查网络能否访问 npm.elemecdn.com", "yellow");
+            }
         }
     </script>
 
@@ -69,14 +88,14 @@
             .then(s => video.srcObject = s)
             .catch(e => log("摄像头错误: " + e.message, "red"));
 
-        // 拍照逻辑
+        // 拍照
         window.runCapture = async function() {
             const btn = document.getElementById('captureBtn');
-            if (!window.imglyLib) return alert("JS 库加载中或失败，请看日志");
+            if (!window.imglyLib) return alert("请等待初始化完成");
 
             btn.disabled = true;
-            btn.innerText = "正在读取本地模型...";
-            log("🚀 开始处理...", "#fff");
+            btn.innerText = "分析中...";
+            log("🚀 开始处理 (读取本地模型)...", "#fff");
 
             const canvas = document.createElement('canvas');
             canvas.width = video.videoWidth;
@@ -87,12 +106,10 @@
                 const blob = await new Promise(r => canvas.toBlob(r));
                 
                 const config = {
-                    // 【核心配置】告诉它去当前 GitHub 文件夹找那 56 个文件
-                    publicPath: './', 
+                    publicPath: './', // 强制读取 GitHub 仓库里的 56 个文件
                     debug: true,
                     progress: (key, cur, total) => {
-                        // key 可能是乱码文件名，正常
-                        if(total) log(`📥 读取本地文件: ${Math.round(cur/total*100)}%`, "#aaa");
+                        if(total) log(`📥 读取: ${Math.round(cur/total*100)}%`, "#aaa");
                     }
                 };
 
@@ -104,26 +121,29 @@
                 resCanvas.height = result.height;
                 resCanvas.getContext('2d').drawImage(result, 0, 0);
                 
-                // 简单描边特效
+                // 描边
                 const ctx = resCanvas.getContext('2d');
                 ctx.globalCompositeOperation = 'destination-over';
                 ctx.shadowColor = 'white'; ctx.shadowBlur = 0;
-                ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4;
-                for(let i=0; i<4; i++) ctx.drawImage(result, 0, 0);
+                const border = Math.max(5, result.width * 0.015);
+                const steps = 8;
+                for(let i=0; i<steps; i++) {
+                    const a = (i/steps)*2*Math.PI;
+                    ctx.shadowOffsetX = Math.cos(a)*border; ctx.shadowOffsetY = Math.sin(a)*border;
+                    ctx.drawImage(result, 0, 0);
+                }
+                ctx.shadowColor = 'transparent';
+                ctx.drawImage(result, 0, 0);
 
                 video.style.display = 'none';
                 resCanvas.style.display = 'block';
                 btn.style.display = 'none';
 
             } catch(e) {
+                console.error(e);
                 log("❌ 失败: " + e.message, "red");
                 btn.disabled = false;
                 btn.innerText = "重试";
-                
-                if(e.message.includes("404") || e.message.includes("fetch")) {
-                    log("💡 提示：无法找到本地模型文件。", "yellow");
-                    log("请检查 GitHub 仓库里是否真的有 resources.json 和那些乱码文件。", "yellow");
-                }
             }
         }
     </script>
