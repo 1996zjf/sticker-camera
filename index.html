@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 衣服贴纸生成器</title>
+    <style>
+        :root {
+            --primary: #6c5ce7;
+            --bg: #dfe6e9;
+        }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: var(--bg);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        h2 { color: #2d3436; margin-bottom: 10px; }
+        
+        .container {
+            width: 100%;
+            max-width: 400px;
+            background: white;
+            padding: 15px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        /* 视频预览区 */
+        .camera-wrapper {
+            position: relative;
+            width: 100%;
+            height: 300px;
+            border-radius: 15px;
+            overflow: hidden;
+            background: #000;
+            margin-bottom: 15px;
+        }
+        
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* 结果展示区 */
+        #resultCanvas {
+            max-width: 100%;
+            height: auto;
+            display: none; /* 默认隐藏 */
+            margin-top: 10px;
+            background-image: linear-gradient(45deg, #eee 25%, transparent 25%, transparent 75%, #eee 75%), linear-gradient(45deg, #eee 25%, transparent 25%, transparent 75%, #eee 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 10px 10px;
+            border-radius: 10px;
+            border: 2px dashed #b2bec3;
+        }
+
+        /* 按钮样式 */
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 50px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        button:active { transform: scale(0.95); }
+
+        #captureBtn { background: var(--primary); color: white; }
+        #downloadBtn { background: #00b894; color: white; display: none; }
+        #retryBtn { background: #fab1a0; color: white; display: none; }
+
+        /* 加载动画 */
+        .loader {
+            display: none;
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            background: rgba(0,0,0,0.7);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 10;
+        }
+
+        .tips {
+            font-size: 12px;
+            color: #636e72;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>👕 衣服变贴纸</h2>
+        
+        <div class="camera-wrapper">
+            <video id="video" autoplay playsinline muted></video>
+            <div id="loader" class="loader">正在AI抠图并生成贴纸...<br>首次运行需加载模型</div>
+        </div>
+
+        <canvas id="resultCanvas"></canvas>
+
+        <div class="btn-group">
+            <button id="captureBtn" onclick="takePhoto()">📷 拍照并制作</button>
+            <button id="retryBtn" onclick="resetCamera()">🔄 重拍</button>
+            <button id="downloadBtn" onclick="downloadSticker()">⬇️ 保存贴纸</button>
+        </div>
+
+        <p class="tips">提示：请将衣服置于画面中心，背景尽量干净。基于浏览器本地计算，保护隐私。</p>
+    </div>
+
+    <!-- 引入强大的前端抠图库 -->
+    <script src="https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.3.0/dist/imgly-background-removal.min.js"></script>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('resultCanvas');
+        const ctx = canvas.getContext('2d');
+        const loader = document.getElementById('loader');
+        const captureBtn = document.getElementById('captureBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const retryBtn = document.getElementById('retryBtn');
+
+        let stream = null;
+
+        // 1. 启动摄像头
+        async function startCamera() {
+            try {
+                // 优先请求后置摄像头
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    } 
+                });
+                video.srcObject = stream;
+                video.style.display = 'block';
+                canvas.style.display = 'none';
+                resetButtons(true);
+            } catch (err) {
+                alert("无法调用摄像头，请检查权限或确保使用HTTPS访问。\n错误: " + err.message);
+            }
+        }
+
+        // 2. 拍照并处理
+        async function takePhoto() {
+            // 显示加载中
+            loader.style.display = 'block';
+            captureBtn.disabled = true;
+
+            // 创建临时 Canvas 抓取当前帧
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = video.videoWidth;
+            tempCanvas.height = video.videoHeight;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(video, 0, 0);
+
+            // 暂停视频以获得“快门”感
+            video.pause();
+
+            try {
+                // 转换为 Blob 供 AI 库使用
+                const blob = await new Promise(resolve => tempCanvas.toBlob(resolve, 'image/png'));
+
+                // === 核心步骤：AI 去除背景 ===
+                // imglyRemoveBackground 是引入库后的全局函数
+                // publicPath 指定模型下载位置，这里使用 CDN
+                const imageBitmap = await imglyRemoveBackground(blob, {
+                    progress: (key, current, total) => {
+                        console.log(`Processing: ${current}/${total}`);
+                    }
+                });
+
+                // === 核心步骤：生成贴纸效果（白边） ===
+                await drawStickerEffect(imageBitmap);
+
+                // 界面状态更新
+                video.style.display = 'none';
+                canvas.style.display = 'block';
+                resetButtons(false);
+
+            } catch (error) {
+                console.error(error);
+                alert('生成失败，请重试。可能是模型加载超时。');
+                video.play();
+            } finally {
+                loader.style.display = 'none';
+                captureBtn.disabled = false;
+            }
+        }
+
+        // 3. 绘制贴纸效果（加粗白边 + 阴影）
+        async function drawStickerEffect(imageBlob) {
+            const img = new Image();
+            img.src = URL.createObjectURL(imageBlob);
+            
+            await new Promise(r => img.onload = r);
+
+            // 设置画布大小
+            canvas.width = img.width;
+            canvas.height = img.height;
+
+            // A. 增加饱和度/对比度 (简单的风格化)
+            ctx.filter = 'saturate(1.3) contrast(1.1)';
+            
+            // B. 绘制白边 (Sticker Border)
+            // 这里使用多次绘制阴影的 Hack 方法来模拟描边
+            // 这种方法比处理像素数据快且简单
+            const borderThickness = 15; // 边框厚度
+            
+            ctx.shadowColor = 'white';
+            ctx.shadowBlur = 0;
+            
+            // 在8个方向绘制白色投影，形成实心边框
+            const steps = 8;
+            for(let i=0; i<steps; i++) {
+                const angle = (i / steps) * 2 * Math.PI;
+                const x = Math.cos(angle) * borderThickness;
+                const y = Math.sin(angle) * borderThickness;
+                ctx.shadowOffsetX = x;
+                ctx.shadowOffsetY = y;
+                // 多画几次以加深不透明度
+                ctx.drawImage(img, 0, 0);
+                ctx.drawImage(img, 0, 0); 
+            }
+
+            // C. 清除阴影设置，绘制原图在中间
+            ctx.shadowColor = 'transparent';
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+            ctx.filter = 'none'; // 重置滤镜，或者保留上面的滤镜
+            
+            // 为了让原图盖住边框内部的杂色，最后再画一次原图
+            ctx.drawImage(img, 0, 0);
+            
+            // D. 加上一点轻微的外部投影（贴纸的立体感）
+            // 由于 Canvas 主要是位图，要加外部投影最好是保留现在的 Canvas，
+            // 再建一个新 Canvas 画现在的图并加阴影，这里为了简单省略。
+        }
+
+        function resetButtons(isCameraMode) {
+            if (isCameraMode) {
+                captureBtn.style.display = 'inline-block';
+                downloadBtn.style.display = 'none';
+                retryBtn.style.display = 'none';
+            } else {
+                captureBtn.style.display = 'none';
+                downloadBtn.style.display = 'inline-block';
+                retryBtn.style.display = 'inline-block';
+            }
+        }
+
+        function resetCamera() {
+            video.style.display = 'block';
+            canvas.style.display = 'none';
+            video.play();
+            resetButtons(true);
+        }
+
+        function downloadSticker() {
+            const link = document.createElement('a');
+            link.download = `sticker-${Date.now()}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        // 初始化
+        window.addEventListener('load', startCamera);
+    </script>
+</body>
+</html>
