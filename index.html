@@ -140,4 +140,93 @@
         }
 
         function handleStream(stream) {
-            debug(
+            debug("✅ 摄像头流获取成功");
+            video.srcObject = stream;
+            // 必须手动触发 play，防止有些浏览器暂停
+            video.play().then(() => {
+                debug("▶️ 视频开始播放");
+                startCamBtn.style.display = 'none';
+                captureBtn.disabled = false;
+            }).catch(e => {
+                debug("⚠️ 视频播放被阻止: " + e.message);
+                debug("请点击屏幕尝试互动");
+            });
+        }
+
+        // 2. 拍照逻辑
+        async function handleCapture() {
+            if (!window.runAI) {
+                alert("AI 还在加载中，请稍后...");
+                return;
+            }
+            
+            debug("📷 点击了拍照");
+            captureBtn.disabled = true;
+            captureBtn.innerText = "处理中...";
+
+            // 截图
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            if(canvas.width === 0) {
+                debug("❌ 错误: 视频画面宽度为0，摄像头未正常工作");
+                captureBtn.disabled = false;
+                return;
+            }
+            
+            ctx.drawImage(video, 0, 0);
+            
+            try {
+                const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+                debug("🖼️ 图片已截取，大小: " + blob.size);
+                
+                // 调用 AI
+                const imageBitmap = await window.runAI(blob);
+                debug("✨ AI 抠图完成！准备渲染");
+
+                await drawSticker(imageBitmap);
+                
+                video.style.display = 'none';
+                canvas.style.display = 'block';
+                captureBtn.style.display = 'none';
+                debug("✅ 流程结束");
+            } catch (error) {
+                debug("❌ 处理出错: " + error.message);
+                alert("出错: " + error.message);
+                captureBtn.disabled = false;
+                captureBtn.innerText = "重试";
+            }
+        }
+
+        async function drawSticker(imageBitmap) {
+            // 清空画布重新画
+            const img = imageBitmap; // bitmap 可以直接画
+            canvas.width = img.width;
+            canvas.height = img.height;
+
+            ctx.filter = 'saturate(1.2) contrast(1.1)';
+            
+            // 描边
+            const border = Math.max(10, img.width * 0.02);
+            ctx.shadowColor = 'white';
+            ctx.shadowBlur = 0;
+            const steps = 8;
+            for(let i=0; i<steps; i++) {
+                const a = (i/steps)*2*Math.PI;
+                ctx.shadowOffsetX = Math.cos(a)*border;
+                ctx.shadowOffsetY = Math.sin(a)*border;
+                ctx.drawImage(img, 0, 0);
+            }
+            ctx.shadowColor = 'transparent';
+            ctx.filter = 'none';
+            ctx.drawImage(img, 0, 0);
+        }
+
+        // 页面加载后尝试自动启动
+        window.onload = () => {
+            debug("页面加载完成，等待用户操作或自动启动...");
+            // 延时一点点自动启动，给 AI 加载留点时间
+            setTimeout(initCamera, 1000);
+        };
+    </script>
+</body>
+</html>
