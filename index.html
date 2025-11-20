@@ -29,20 +29,34 @@
     </div>
 
     <!-- 使用 module 方式引入改名后的 imgly.js -->
-    <script type="module">
-        import removeBackground from './imgly.js';
-        
-        // 挂载到全局
-        window.imglyLib = removeBackground;
-        
+     <script type="module">
+        // 1. 把整个文件作为对象导入
+        import * as ImglyModule from './imgly.js';
+
+        // 2. 自动寻找真正的入口函数
+        // 新版可能是 .removeBackground，也可能是 .default，我们都试试
+        const entryFn = ImglyModule.removeBackground || ImglyModule.default || ImglyModule.imglyRemoveBackground;
+
         const logBox = document.getElementById('debug-log');
+        // 定义全局日志函数
         window.log = (msg) => {
-            logBox.innerHTML += `> ${msg}<br>`;
-            logBox.scrollTop = logBox.scrollHeight;
+            if(logBox) {
+                logBox.innerHTML += `> ${msg}<br>`;
+                logBox.scrollTop = logBox.scrollHeight;
+            }
+            console.log(msg);
         };
 
-        window.log("✅ 核心 imgly.js 加载完毕");
-        window.log("📂 准备读取 resources.json 映射...");
+        // 3. 检查并挂载
+        if (entryFn) {
+            window.imglyLib = entryFn;
+            window.log("✅ 成功找到核心函数！");
+            window.log("📂 模块导出内容: " + Object.keys(ImglyModule).join(', '));
+        } else {
+            window.log("❌ 加载了 imgly.js 但没找到入口函数");
+            window.log("⚠️ 模块内容: " + JSON.stringify(ImglyModule));
+            alert("JS 加载异常，请截图发给开发者（看屏幕日志）");
+        }
     </script>
 
     <script>
