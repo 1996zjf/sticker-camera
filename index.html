@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>修复版 - AI 抠图</title>
+    <title>AI 抠图 (混合加速版)</title>
     <style>
         body { background: #2d3436; color: white; margin: 0; padding: 10px; font-family: sans-serif; text-align: center; }
         .camera-wrapper { 
@@ -15,81 +15,56 @@
         canvas { max-width: 100%; display: none; border-radius: 12px; }
         
         #console-box {
-            position: fixed; bottom: 0; left: 0; right: 0; height: 180px;
+            position: fixed; bottom: 0; left: 0; right: 0; height: 150px;
             background: rgba(0, 0, 0, 0.9); color: #fab1a0;
             font-family: monospace; font-size: 12px; padding: 10px;
             overflow-y: scroll; text-align: left; z-index: 9999; border-top: 2px solid #6c5ce7;
         }
-        .btn { padding: 15px 40px; font-size: 18px; border-radius: 50px; background: #6c5ce7; color: white; border: none; font-weight: bold; margin-bottom: 200px; }
+        .btn { padding: 15px 40px; font-size: 18px; border-radius: 50px; background: #6c5ce7; color: white; border: none; font-weight: bold; margin-bottom: 160px; }
         .btn:disabled { background: #636e72; }
     </style>
 </head>
 <body>
-    <h3>🕵️ 文件自检模式</h3>
+    <h3>🚀 混合加载模式</h3>
     <div class="camera-wrapper">
         <video id="video" autoplay playsinline muted></video>
         <canvas id="resultCanvas"></canvas>
     </div>
     <button id="captureBtn" class="btn" onclick="runCapture()">📸 拍照</button>
-    <div id="console-box">系统启动...<br></div>
+    <div id="console-box">初始化...<br></div>
 
     <script>
-        // 1. 日志工具
+        // 日志工具
         const logBox = document.getElementById('console-box');
         function log(msg, color = '#fab1a0') {
             logBox.innerHTML += `<div style="color:${color}">> ${msg}</div>`;
             logBox.scrollTop = logBox.scrollHeight;
         }
         window.appLog = log;
+    </script>
 
-        // 2. 侦探逻辑：检查 imgly.js 到底是啥
-        async function checkAndLoad() {
-            log("🔍 第一步：检查 imgly.js 文件状态...", "#fff");
-            try {
-                const response = await fetch('./imgly.js');
-                
-                if (response.status === 404) {
-                    throw new Error("❌ 文件不存在 (404)。请检查是否已上传 imgly.js");
-                }
-                
-                const text = await response.text();
-                log(`📄 文件大小: ${text.length} 字符`, "#fff");
+    <!-- === 关键修改：从 esm.sh 加载自带依赖的 JS === -->
+    <script type="module">
+        try {
+            log("☁️ 正在从网络加载主程序 (esm.sh)...", "#fff");
+            
+            // 使用 1.4.0 版本以匹配你的本地数据
+            import imglyRemoveBackground from 'https://esm.sh/@imgly/background-removal@1.4.0';
+            
+            window.imglyLib = imglyRemoveBackground;
+            log("✅ JS 主程序加载成功！", "#00b894");
+            log("📂 模型数据将从【本地 GitHub】读取", "#00b894");
 
-                // 检查是不是 HTML (也就是 404 页面或 GitHub 页面)
-                if (text.trim().startsWith('<')) {
-                    throw new Error("❌ imgly.js 内容错误！\n它看起来像 HTML 网页，而不是 JS 代码。\n原因：你可能直接保存了 GitHub 网页链接，而不是文件内容。");
-                }
-
-                log("✅ 文件校验通过：看起来是 JS 代码", "#00b894");
-                log("🔄 第二步：尝试动态加载...", "#fff");
-
-                // 3. 动态导入 (兼容性最好)
-                const module = await import('./imgly.js');
-                
-                // 寻找入口
-                window.imglyLib = module.default || module.imglyRemoveBackground || module.removeBackground;
-                
-                if (window.imglyLib) {
-                    log("🎉 加载成功！AI 引擎就绪。", "#00b894");
-                    log("👉 现在点击拍照试试！", "#00b894");
-                } else {
-                    log("⚠️ 警告：模块加载了，但没找到入口函数。", "yellow");
-                    console.log(module);
-                }
-
-            } catch (e) {
-                log("❌ 致命错误: " + e.message, "red");
-                if(e.message.includes("Failed to fetch")) {
-                    log("提示：无法读取本地文件，请确保已上传到 GitHub Pages 并通过 https 访问", "yellow");
-                }
-            }
+        } catch (e) {
+            log("❌ JS 加载失败: " + e.message, "red");
+            log("请检查网络连接", "red");
         }
+    </script>
 
-        // 启动检查
-        checkAndLoad();
-
-        // 启动摄像头
+    <script>
         const video = document.getElementById('video');
+        
+        // 启动摄像头
         navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
             .then(s => video.srcObject = s)
             .catch(e => log("摄像头错误: " + e.message, "red"));
@@ -97,10 +72,10 @@
         // 拍照逻辑
         window.runCapture = async function() {
             const btn = document.getElementById('captureBtn');
-            if (!window.imglyLib) return alert("AI 库未加载，请看底部日志");
+            if (!window.imglyLib) return alert("JS 库加载中或失败，请看日志");
 
             btn.disabled = true;
-            btn.innerText = "分析中...";
+            btn.innerText = "正在读取本地模型...";
             log("🚀 开始处理...", "#fff");
 
             const canvas = document.createElement('canvas');
@@ -112,10 +87,12 @@
                 const blob = await new Promise(r => canvas.toBlob(r));
                 
                 const config = {
-                    publicPath: './', // 寻找 resources.json
+                    // 【核心配置】告诉它去当前 GitHub 文件夹找那 56 个文件
+                    publicPath: './', 
                     debug: true,
                     progress: (key, cur, total) => {
-                        if(total) log(`📥 加载资源: ${Math.round(cur/total*100)}%`, "#aaa");
+                        // key 可能是乱码文件名，正常
+                        if(total) log(`📥 读取本地文件: ${Math.round(cur/total*100)}%`, "#aaa");
                     }
                 };
 
@@ -127,6 +104,13 @@
                 resCanvas.height = result.height;
                 resCanvas.getContext('2d').drawImage(result, 0, 0);
                 
+                // 简单描边特效
+                const ctx = resCanvas.getContext('2d');
+                ctx.globalCompositeOperation = 'destination-over';
+                ctx.shadowColor = 'white'; ctx.shadowBlur = 0;
+                ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4;
+                for(let i=0; i<4; i++) ctx.drawImage(result, 0, 0);
+
                 video.style.display = 'none';
                 resCanvas.style.display = 'block';
                 btn.style.display = 'none';
@@ -135,6 +119,11 @@
                 log("❌ 失败: " + e.message, "red");
                 btn.disabled = false;
                 btn.innerText = "重试";
+                
+                if(e.message.includes("404") || e.message.includes("fetch")) {
+                    log("💡 提示：无法找到本地模型文件。", "yellow");
+                    log("请检查 GitHub 仓库里是否真的有 resources.json 和那些乱码文件。", "yellow");
+                }
             }
         }
     </script>
