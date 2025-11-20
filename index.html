@@ -3,158 +3,105 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI 抠图 - 急救调试版</title>
+    <title>修复版 - AI 抠图</title>
     <style>
-        /* === 1. 基础样式 (防止界面崩坏) === */
-        body { 
-            background: #2d3436; color: white; margin: 0; padding: 10px; 
-            font-family: sans-serif; text-align: center; overflow-x: hidden;
-        }
-        
-        /* 强制限制视频大小，解决取景框巨大问题 */
+        body { background: #2d3436; color: white; margin: 0; padding: 10px; font-family: sans-serif; text-align: center; }
         .camera-wrapper { 
-            width: 100%; 
-            max-width: 600px; 
-            height: 60vh; /* 限制高度 */
-            background: #000; 
-            margin: 10px auto; 
-            border-radius: 12px; 
-            overflow: hidden; 
-            position: relative; 
+            width: 100%; max-width: 600px; height: 60vh; background: #000; 
+            margin: 10px auto; border-radius: 12px; overflow: hidden; position: relative; 
             border: 2px solid #6c5ce7;
         }
-        
-        video { 
-            width: 100%; 
-            height: 100%; 
-            object-fit: contain; /* 确保画面完整 */
-        }
-        
+        video { width: 100%; height: 100%; object-fit: cover; }
         canvas { max-width: 100%; display: none; border-radius: 12px; }
-
-        /* === 2. 日志框 (强制置顶显示) === */
+        
         #console-box {
-            position: fixed;
-            bottom: 0; left: 0; right: 0;
-            height: 150px;
-            background: rgba(0, 0, 0, 0.9);
-            color: #00b894;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            padding: 10px;
-            overflow-y: scroll;
-            text-align: left;
-            z-index: 9999;
-            border-top: 2px solid #fab1a0;
+            position: fixed; bottom: 0; left: 0; right: 0; height: 180px;
+            background: rgba(0, 0, 0, 0.9); color: #fab1a0;
+            font-family: monospace; font-size: 12px; padding: 10px;
+            overflow-y: scroll; text-align: left; z-index: 9999; border-top: 2px solid #6c5ce7;
         }
-
-        .btn {
-            padding: 15px 40px; font-size: 18px; border-radius: 50px;
-            background: #6c5ce7; color: white; border: none; font-weight: bold;
-            margin-bottom: 160px; /* 给日志框留位置 */
-        }
+        .btn { padding: 15px 40px; font-size: 18px; border-radius: 50px; background: #6c5ce7; color: white; border: none; font-weight: bold; margin-bottom: 200px; }
         .btn:disabled { background: #636e72; }
     </style>
 </head>
 <body>
-
-    <h3>🔍 深度调试模式</h3>
+    <h3>🕵️ 文件自检模式</h3>
     <div class="camera-wrapper">
         <video id="video" autoplay playsinline muted></video>
         <canvas id="resultCanvas"></canvas>
     </div>
-
     <button id="captureBtn" class="btn" onclick="runCapture()">📸 拍照</button>
+    <div id="console-box">系统启动...<br></div>
 
-    <!-- 日志容器 -->
-    <div id="console-box">日志系统初始化...<br></div>
-
-    <!-- === 脚本区域 === -->
     <script>
-        // 1. 立即初始化日志系统 (保证不报错)
+        // 1. 日志工具
         const logBox = document.getElementById('console-box');
-        function log(msg, isError = false) {
-            const time = new Date().toLocaleTimeString();
-            const color = isError ? '#ff7675' : '#00b894';
-            logBox.innerHTML += `<div style="color:${color}">[${time}] ${msg}</div>`;
+        function log(msg, color = '#fab1a0') {
+            logBox.innerHTML += `<div style="color:${color}">> ${msg}</div>`;
             logBox.scrollTop = logBox.scrollHeight;
-            console.log(msg);
         }
-        
-        // 2. 全局错误捕获 (专门抓取 "Script error" 或 404)
-        window.onerror = function(message, source, lineno, colno, error) {
-            log(`❌ 全局错误: ${message}`, true);
-            log(`📍 位置: ${source}:${lineno}`, true);
-            return true;
-        };
-        
-        // 3. 挂载全局 log，防止 module 找不到
         window.appLog = log;
-    </script>
 
-    <!-- === 4. 尝试导入模块 === -->
-    <script type="module">
-        try {
-            window.appLog("🔄 正在尝试导入 ./imgly.js ...");
-            
-            // 尝试导入所有内容
-            import * as Module from './imgly.js';
-            
-            window.appLog("✅ 导入语句执行成功！");
-            window.appLog("📂 模块包含以下导出: " + Object.keys(Module).join(', '));
-
-            // 智能寻找入口函数
-            // 1.7.0/1.4.0 可能导出的名字：removeBackground, imglyRemoveBackground, default
-            const mainFn = Module.removeBackground || Module.default || Module.imglyRemoveBackground;
-
-            if (mainFn) {
-                window.imglyLib = mainFn;
-                window.appLog("🎉 成功锁定核心函数！可以拍照了。");
-            } else {
-                window.appLog("⚠️ 警告：模块已加载，但没找到入口函数。", true);
-                window.appLog("请查看上方导出的名字，看哪个像。", true);
-            }
-
-        } catch (e) {
-            window.appLog("❌ 模块导入严重失败！", true);
-            window.appLog("原因: " + e.message, true);
-            if(e.message.includes('404')) {
-                window.appLog("👉 你的 imgly.js 文件名可能不对，或者没传上去。", true);
-            }
-        }
-    </script>
-
-    <!-- === 5. 业务逻辑 === -->
-    <script>
-        const video = document.getElementById('video');
-        
-        // 启动摄像头
-        async function initCam() {
+        // 2. 侦探逻辑：检查 imgly.js 到底是啥
+        async function checkAndLoad() {
+            log("🔍 第一步：检查 imgly.js 文件状态...", "#fff");
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'environment' } 
-                });
-                video.srcObject = stream;
-                log("🎥 摄像头启动成功");
-            } catch(e) {
-                log("❌ 摄像头失败: " + e.message, true);
+                const response = await fetch('./imgly.js');
+                
+                if (response.status === 404) {
+                    throw new Error("❌ 文件不存在 (404)。请检查是否已上传 imgly.js");
+                }
+                
+                const text = await response.text();
+                log(`📄 文件大小: ${text.length} 字符`, "#fff");
+
+                // 检查是不是 HTML (也就是 404 页面或 GitHub 页面)
+                if (text.trim().startsWith('<')) {
+                    throw new Error("❌ imgly.js 内容错误！\n它看起来像 HTML 网页，而不是 JS 代码。\n原因：你可能直接保存了 GitHub 网页链接，而不是文件内容。");
+                }
+
+                log("✅ 文件校验通过：看起来是 JS 代码", "#00b894");
+                log("🔄 第二步：尝试动态加载...", "#fff");
+
+                // 3. 动态导入 (兼容性最好)
+                const module = await import('./imgly.js');
+                
+                // 寻找入口
+                window.imglyLib = module.default || module.imglyRemoveBackground || module.removeBackground;
+                
+                if (window.imglyLib) {
+                    log("🎉 加载成功！AI 引擎就绪。", "#00b894");
+                    log("👉 现在点击拍照试试！", "#00b894");
+                } else {
+                    log("⚠️ 警告：模块加载了，但没找到入口函数。", "yellow");
+                    console.log(module);
+                }
+
+            } catch (e) {
+                log("❌ 致命错误: " + e.message, "red");
+                if(e.message.includes("Failed to fetch")) {
+                    log("提示：无法读取本地文件，请确保已上传到 GitHub Pages 并通过 https 访问", "yellow");
+                }
             }
         }
-        initCam();
 
-        // 拍照处理
+        // 启动检查
+        checkAndLoad();
+
+        // 启动摄像头
+        const video = document.getElementById('video');
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+            .then(s => video.srcObject = s)
+            .catch(e => log("摄像头错误: " + e.message, "red"));
+
+        // 拍照逻辑
         window.runCapture = async function() {
             const btn = document.getElementById('captureBtn');
-            
-            if (!window.imglyLib) {
-                log("⛔ 无法拍照：JS 库未加载成功。请看上方红字错误。", true);
-                alert("JS 库未加载，请检查底部日志");
-                return;
-            }
+            if (!window.imglyLib) return alert("AI 库未加载，请看底部日志");
 
             btn.disabled = true;
-            btn.innerText = "计算中...";
-            log("🚀 开始 AI 处理...");
+            btn.innerText = "分析中...";
+            log("🚀 开始处理...", "#fff");
 
             const canvas = document.createElement('canvas');
             canvas.width = video.videoWidth;
@@ -164,18 +111,17 @@
             try {
                 const blob = await new Promise(r => canvas.toBlob(r));
                 
-                // 配置：告诉它去当前目录找 resources.json
                 const config = {
-                    publicPath: './', 
+                    publicPath: './', // 寻找 resources.json
                     debug: true,
                     progress: (key, cur, total) => {
-                        if(total) log(`📥 加载: ${Math.round(cur/total*100)}%`);
+                        if(total) log(`📥 加载资源: ${Math.round(cur/total*100)}%`, "#aaa");
                     }
                 };
 
                 const result = await window.imglyLib(blob, config);
                 
-                log("✨ 处理完成！");
+                log("✨ 成功！", "#00b894");
                 const resCanvas = document.getElementById('resultCanvas');
                 resCanvas.width = result.width;
                 resCanvas.height = result.height;
@@ -186,7 +132,7 @@
                 btn.style.display = 'none';
 
             } catch(e) {
-                log("❌ 处理出错: " + e.message, true);
+                log("❌ 失败: " + e.message, "red");
                 btn.disabled = false;
                 btn.innerText = "重试";
             }
