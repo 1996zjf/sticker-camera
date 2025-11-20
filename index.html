@@ -3,175 +3,120 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>修复版 - 贴纸相机</title>
+    <title>AI 抠图 v1.4+ (哈希文件版)</title>
     <style>
-        :root { --primary: #6c5ce7; --bg: #dfe6e9; }
-        body { font-family: sans-serif; background: var(--bg); padding: 10px; text-align: center; }
-        
-        #debug-log {
-            width: 90%; height: 120px; background: #2d3436; color: #fab1a0;
-            font-family: monospace; font-size: 12px; overflow-y: scroll;
-            text-align: left; padding: 10px; margin: 10px auto;
-            border-radius: 8px; border: 1px solid #ccc;
-        }
-
-        .camera-wrapper { 
-            position: relative; width: 100%; height: 350px; 
-            background: #000; border-radius: 10px; overflow: hidden; margin-bottom: 10px;
-        }
+        body { font-family: sans-serif; background: #2d3436; color: white; text-align: center; padding: 10px; margin: 0; height: 100vh; display: flex; flex-direction: column; }
+        .camera-wrapper { flex: 1; background: #000; margin-bottom: 10px; overflow: hidden; border-radius: 12px; position: relative; display: flex; align-items: center; justify-content: center; }
         video { width: 100%; height: 100%; object-fit: cover; }
-        #resultCanvas { max-width: 100%; height: auto; display: none; border-radius: 10px; border: 2px dashed #b2bec3; }
-
-        button { 
-            padding: 12px 20px; margin: 5px; border: none; border-radius: 5px; 
-            font-size: 16px; font-weight: bold; background: var(--primary); color: white; 
-        }
-        button:disabled { background: #b2bec3; }
-        
-        #status { margin-bottom: 5px; font-weight: bold; color: #d63031; }
-        .ready { color: #00b894 !important; }
+        canvas { max-width: 100%; max-height: 100%; object-fit: contain; display: none; }
+        .controls { height: 80px; display: flex; justify-content: center; align-items: center; gap: 15px; }
+        button { padding: 15px 30px; background: #6c5ce7; color: white; border: none; border-radius: 50px; font-size: 18px; font-weight: bold; transition: 0.2s; }
+        button:disabled { background: #636e72; color: #b2bec3; }
+        #debug-log { text-align: left; background: rgba(0,0,0,0.5); color: #00b894; padding: 10px; height: 100px; overflow-y: auto; font-size: 11px; position: absolute; top: 10px; left: 10px; right: 10px; pointer-events: none; border-radius: 8px; }
     </style>
 </head>
 <body>
-    <h3>🚀 最终修复版</h3>
-    <div id="status">🔴 连接官方数据源...</div>
-    
+    <div id="debug-log">初始化 v1.4+ 模式...<br></div>
+
     <div class="camera-wrapper">
         <video id="video" autoplay playsinline muted></video>
-    </div>
-    <canvas id="resultCanvas"></canvas>
-
-    <div>
-        <button id="startCamBtn" onclick="initCamera()">🎥 启动摄像头</button>
-        <button id="captureBtn" onclick="handleCapture()" disabled>📸 拍照</button>
-        <button onclick="location.reload()">🔄 刷新</button>
+        <canvas id="resultCanvas"></canvas>
     </div>
 
-    <div id="debug-log">日志区 ready...<br></div>
+    <div class="controls">
+        <button id="captureBtn" onclick="window.handleCapture()">📸 拍照</button>
+        <button onclick="location.reload()" style="background:#fab1a0; font-size:14px; padding:10px 20px;">🔄</button>
+    </div>
 
-    <!-- 核心修改在这里 -->
+    <!-- 使用 module 方式引入改名后的 imgly.js -->
     <script type="module">
-        // JS 库依然用 esm.sh，因为它很快且没问题
-        import imglyRemoveBackground from 'https://esm.sh/@imgly/background-removal@1.3.0';
-
-        function log(msg) {
-            const box = document.getElementById('debug-log');
-            const time = new Date().toLocaleTimeString();
-            box.innerHTML += `[${time}] ${msg}<br>`;
-            box.scrollTop = box.scrollHeight;
-            console.log(msg);
-        }
-        window.logToScreen = log;
-
-        window.runAI = async (blob) => {
-            log("🚀 请求官方数据源 (static.img.ly)...");
-            
-            return await imglyRemoveBackground(blob, {
-                // 【关键修改】换回官方源，确保文件结构正确
-                // 如果这个还慢，唯一的办法就是下载文件到本地了
-                publicPath: 'https://static.img.ly/background-removal-data/1.3.0/', 
-                debug: true,
-                progress: (key, current, total) => {
-                   // 只有当下载新文件时才打印，避免刷屏
-                   const percent = Math.round((current / total) * 100);
-                   if (percent % 20 === 0 || percent === 100) {
-                       log(`📦 下载模型 ${key}: ${percent}%`);
-                   }
-                }
-            });
+        import removeBackground from './imgly.js';
+        
+        // 挂载到全局
+        window.imglyLib = removeBackground;
+        
+        const logBox = document.getElementById('debug-log');
+        window.log = (msg) => {
+            logBox.innerHTML += `> ${msg}<br>`;
+            logBox.scrollTop = logBox.scrollHeight;
         };
 
-        const status = document.getElementById('status');
-        status.innerText = "🟢 AI 引擎就绪";
-        status.classList.add('ready');
-        log("✅ JS库加载成功，等待拍照触发数据下载");
+        window.log("✅ 核心 imgly.js 加载完毕");
+        window.log("📂 准备读取 resources.json 映射...");
     </script>
 
     <script>
         const video = document.getElementById('video');
         const canvas = document.getElementById('resultCanvas');
         const ctx = canvas.getContext('2d');
-        const captureBtn = document.getElementById('captureBtn');
-        const startCamBtn = document.getElementById('startCamBtn');
+        const btn = document.getElementById('captureBtn');
 
-        function debug(msg) { if(window.logToScreen) window.logToScreen(msg); }
+        // 1. 启动摄像头
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 } } })
+            .then(stream => { video.srcObject = stream; })
+            .catch(err => window.log && window.log("❌ 摄像头失败: " + err.message));
 
-        async function initCamera() {
-            debug("🔄 正在启动摄像头...");
+        // 2. 拍照逻辑
+        window.handleCapture = async function() {
+            if (!window.imglyLib) return alert("JS 文件未加载，请检查 imgly.js");
+
+            btn.disabled = true;
+            btn.innerText = "计算中...";
+            window.log("🚀 开始处理...");
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = video.videoWidth;
+            tempCanvas.height = video.videoHeight;
+            tempCanvas.getContext('2d').drawImage(video, 0, 0);
+            const blob = await new Promise(r => tempCanvas.toBlob(r));
+
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'environment', width: { ideal: 1280 } } 
-                });
-                video.srcObject = stream;
-                video.play().then(() => {
-                    debug("▶️ 视频流正常");
-                    startCamBtn.style.display = 'none';
-                    captureBtn.disabled = false;
-                });
-            } catch (err) {
-                debug("❌ 摄像头失败: " + err.message);
-                alert("请允许摄像头权限！");
-            }
-        }
+                // 新版核心配置
+                const config = {
+                    publicPath: './', // 关键：让它在当前目录找 resources.json
+                    debug: true,
+                    progress: (key, current, total) => {
+                        // 这里 key 可能会显示成乱码文件名，是正常的
+                        if (total) {
+                            const p = Math.round(current / total * 100);
+                            if(p % 20 === 0) window.log(`📥 下载资源: ${p}%`);
+                        }
+                    }
+                };
 
-        async function handleCapture() {
-            if (!window.runAI) return alert("AI未加载");
-            
-            captureBtn.disabled = true;
-            captureBtn.innerText = "正在下载模型(耗时)...";
-            debug("📷 拍照，准备下载模型...");
-
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            ctx.drawImage(video, 0, 0);
-            
-            try {
-                const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+                // 执行
+                const imageBitmap = await window.imglyLib(blob, config);
                 
-                // 这一步会去官方地址下载数据，可能会慢，但不会报 Metadata 错误
-                const imageBitmap = await window.runAI(blob);
+                window.log("✨ 成功！绘制结果...");
+                canvas.width = imageBitmap.width;
+                canvas.height = imageBitmap.height;
                 
-                debug("✨ 抠图成功！处理特效...");
-                await drawSticker(imageBitmap);
+                // 简单描边
+                ctx.shadowColor = 'white'; ctx.shadowBlur = 0;
+                const steps = 10; const border = Math.max(5, imageBitmap.width * 0.015);
+                for(let i=0; i<steps; i++) {
+                    const a = (i/steps)*2*Math.PI;
+                    ctx.shadowOffsetX = Math.cos(a)*border; ctx.shadowOffsetY = Math.sin(a)*border;
+                    ctx.drawImage(imageBitmap, 0, 0);
+                }
+                ctx.shadowColor = 'transparent';
+                ctx.drawImage(imageBitmap, 0, 0);
                 
                 video.style.display = 'none';
                 canvas.style.display = 'block';
-                captureBtn.style.display = 'none';
-                debug("✅ 全部完成！");
+                btn.style.display = 'none';
+                window.log("✅ 完成");
+
             } catch (error) {
-                debug("❌ 失败: " + error.message);
-                // 如果这里是 Network Error，那就真的只能用“本地文件大法”了
-                if(error.message.includes('fetch') || error.message.includes('Network')) {
-                    alert("网络下载失败。请看下文建议。");
-                } else {
-                    alert("出错: " + error.message);
+                console.error(error);
+                window.log("❌ 失败: " + error.message);
+                if(error.message.includes("fetch") || error.message.includes("404")) {
+                    alert("文件缺失！\n请确保截图里的所有乱码文件和 resources.json 都上传到了 GitHub。");
                 }
-                captureBtn.disabled = false;
-                captureBtn.innerText = "重试";
+                btn.disabled = false;
+                btn.innerText = "重试";
             }
         }
-
-        async function drawSticker(imageBitmap) {
-            const img = imageBitmap;
-            canvas.width = img.width;
-            canvas.height = img.height;
-            ctx.filter = 'saturate(1.2) contrast(1.1)';
-            const border = Math.max(10, img.width * 0.02);
-            ctx.shadowColor = 'white';
-            ctx.shadowBlur = 0;
-            const steps = 8;
-            for(let i=0; i<steps; i++) {
-                const a = (i/steps)*2*Math.PI;
-                ctx.shadowOffsetX = Math.cos(a)*border;
-                ctx.shadowOffsetY = Math.sin(a)*border;
-                ctx.drawImage(img, 0, 0);
-            }
-            ctx.shadowColor = 'transparent';
-            ctx.filter = 'none';
-            ctx.drawImage(img, 0, 0);
-        }
-
-        window.onload = () => setTimeout(initCamera, 1000);
     </script>
 </body>
 </html>
