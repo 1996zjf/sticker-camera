@@ -3,146 +3,107 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 衣服贴纸生成器 (国内加速版)</title>
+    <title>AI 衣服贴纸 (ESM版)</title>
     <style>
         :root { --primary: #6c5ce7; --bg: #dfe6e9; }
-        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; min-height: 100vh; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; min-height: 100vh; }
         .container { width: 100%; max-width: 400px; background: white; padding: 15px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; }
-        .camera-wrapper { position: relative; width: 100%; height: 300px; border-radius: 15px; overflow: hidden; background: #000; margin-bottom: 15px; }
+        
+        /* 状态指示器 */
+        #status-bar {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 8px;
+            background: #ffeaa7;
+            color: #d63031;
+            font-size: 13px;
+            font-weight: bold;
+        }
+        .ready { background: #55efc4 !important; color: #00b894 !important; }
+
+        .camera-wrapper { position: relative; width: 100%; height: 350px; border-radius: 15px; overflow: hidden; background: #000; margin-bottom: 15px; }
         video { width: 100%; height: 100%; object-fit: cover; }
         #resultCanvas { max-width: 100%; height: auto; display: none; margin-top: 10px; background-image: linear-gradient(45deg, #eee 25%, transparent 25%, transparent 75%, #eee 75%), linear-gradient(45deg, #eee 25%, transparent 25%, transparent 75%, #eee 75%); background-size: 20px 20px; border-radius: 10px; border: 2px dashed #b2bec3; }
+        
         .btn-group { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-        button { padding: 12px 24px; border: none; border-radius: 50px; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.1s; }
+        button { padding: 12px 24px; border: none; border-radius: 50px; font-size: 16px; font-weight: bold; cursor: pointer; transition: all 0.2s; opacity: 0.6; pointer-events: none; }
+        button.active { opacity: 1; pointer-events: auto; }
         button:active { transform: scale(0.95); }
+        
         #captureBtn { background: var(--primary); color: white; }
         #downloadBtn { background: #00b894; color: white; display: none; }
         #retryBtn { background: #fab1a0; color: white; display: none; }
-        .loader { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 10px; z-index: 10; width: 80%; }
-        .tips { font-size: 12px; color: #636e72; margin-top: 15px; }
+        
+        .loader { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; background: rgba(0,0,0,0.85); padding: 20px; border-radius: 10px; z-index: 10; width: 80%; text-align: center; }
+        .loader p { margin: 5px 0 0; font-size: 12px; color: #bdc3c7; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2>👕 衣服变贴纸 (加速版)</h2>
+        <div id="status-bar">🔴 正在连接 AI 服务器...</div>
+        
         <div class="camera-wrapper">
             <video id="video" autoplay playsinline muted></video>
-            <div id="loader" class="loader"></div>
+            <div id="loader" class="loader">⏳ 处理中...</div>
         </div>
         <canvas id="resultCanvas"></canvas>
+
         <div class="btn-group">
-            <button id="captureBtn" onclick="takePhoto()">📷 拍照并制作</button>
+            <button id="captureBtn" class="active" onclick="alert('请等待 AI 引擎加载完毕')">📷 拍照并制作</button>
             <button id="retryBtn" onclick="resetCamera()">🔄 重拍</button>
             <button id="downloadBtn" onclick="downloadSticker()">⬇️ 保存贴纸</button>
         </div>
-        <p class="tips">提示：使用国内镜像源，首次加载仍需消耗约 40MB 流量，请保持网络畅通。</p>
     </div>
 
-    <!-- 修改点1：使用 饿了么CDN 加载 JS 库，解决 not defined 问题 -->
-    <script src="https://npm.elemecdn.com/@imgly/background-removal@1.3.0/dist/imgly-background-removal.min.js"></script>
+    <!-- 使用 type="module" 现代加载方式 -->
+    <script type="module">
+        // 从 esm.sh 引入库
+        import imglyRemoveBackground from 'https://esm.sh/@imgly/background-removal@1.3.0';
+        
+        // 挂载到全局变量，供下方普通脚本调用
+        window.runRemoveBackground = async (blob, progressCallback) => {
+            return await imglyRemoveBackground(blob, {
+                // 强制指定模型下载路径为 esm.sh
+                publicPath: 'https://esm.sh/@imgly/background-removal-data@1.3.0/dist/',
+                debug: true,
+                progress: progressCallback
+            });
+        };
+
+        // 通知界面加载完成
+        const statusBar = document.getElementById('status-bar');
+        const captureBtn = document.getElementById('captureBtn');
+        
+        statusBar.innerText = "🟢 AI 引擎已就绪，可以拍照了";
+        statusBar.classList.add('ready');
+        
+        // 激活按钮功能
+        captureBtn.onclick = window.takePhoto; 
+        captureBtn.innerText = "📷 拍照并制作";
+    </script>
 
     <script>
+        // 常规逻辑控制
         const video = document.getElementById('video');
         const canvas = document.getElementById('resultCanvas');
         const ctx = canvas.getContext('2d');
         const loader = document.getElementById('loader');
         const captureBtn = document.getElementById('captureBtn');
-        
-        // 1. 启动摄像头
+
+        // 启动摄像头
         async function startCamera() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'environment', width: { ideal: 1280 } } 
+                    video: { facingMode: 'environment', width: { ideal: 1080 } } 
                 });
                 video.srcObject = stream;
                 resetButtons(true);
             } catch (err) {
-                alert("摄像头启动失败：" + err.message);
+                alert("无法启动摄像头，请确保使用 HTTPS 链接访问。\nError: " + err.message);
             }
         }
 
-        // 2. 拍照并处理
-        async function takePhoto() {
-            loader.style.display = 'block';
-            loader.innerHTML = "准备中...";
-            captureBtn.disabled = true;
-
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = video.videoWidth;
-            tempCanvas.height = video.videoHeight;
-            tempCanvas.getContext('2d').drawImage(video, 0, 0);
-            video.pause();
-
-            try {
-                const blob = await new Promise(r => tempCanvas.toBlob(r, 'image/png'));
-
-                // === 核心修改点2：配置国内镜像源下载模型 ===
-                // publicPath 指向饿了么 CDN 的 data 包
-                const imageBitmap = await imglyRemoveBackground(blob, {
-                    publicPath: 'https://npm.elemecdn.com/@imgly/background-removal-data@1.3.0/dist/',
-                    progress: (key, current, total) => {
-                        const percent = Math.round((current / total) * 100);
-                        loader.innerHTML = `正在加速下载模型...<br>${percent}%`;
-                    }
-                });
-
-                await drawStickerEffect(imageBitmap);
-                
-                video.style.display = 'none';
-                canvas.style.display = 'block';
-                resetButtons(false);
-            } catch (error) {
-                console.error(error);
-                alert('失败：' + error.message + '\n请尝试切换 Wi-Fi 或数据网络。');
-                video.play();
-            } finally {
-                loader.style.display = 'none';
-                captureBtn.disabled = false;
-            }
-        }
-
-        // 3. 绘制贴纸
-        async function drawStickerEffect(imageBlob) {
-            const img = new Image();
-            img.src = URL.createObjectURL(imageBlob);
-            await new Promise(r => img.onload = r);
-            canvas.width = img.width;
-            canvas.height = img.height;
-            
-            ctx.filter = 'saturate(1.2) contrast(1.1)';
-            // 绘制白边
-            const border = 15;
-            ctx.shadowColor = 'white';
-            ctx.shadowBlur = 0;
-            const steps = 8;
-            for(let i=0; i<steps; i++) {
-                const a = (i/steps)*2*Math.PI;
-                ctx.shadowOffsetX = Math.cos(a)*border;
-                ctx.shadowOffsetY = Math.sin(a)*border;
-                ctx.drawImage(img, 0, 0);
-            }
-            ctx.shadowColor = 'transparent';
-            ctx.filter = 'none';
-            ctx.drawImage(img, 0, 0);
-        }
-
-        function resetButtons(isCam) {
-            document.getElementById('captureBtn').style.display = isCam ? 'inline-block' : 'none';
-            document.getElementById('downloadBtn').style.display = isCam ? 'none' : 'inline-block';
-            document.getElementById('retryBtn').style.display = isCam ? 'none' : 'inline-block';
-        }
-        function resetCamera() {
-            video.style.display = 'block';
-            canvas.style.display = 'none';
-            video.play();
-            resetButtons(true);
-        }
-        function downloadSticker() {
-            const link = document.createElement('a');
-            link.download = `sticker-${Date.now()}.png`;
-            link.href = canvas.toDataURL();
-            link.click();
-        }
-        window.onload = startCamera;
-    </script>
-</body>
-</html>
+        // 拍照逻辑
+        window.takePhoto = async function() {
+            if (!window.runRemoveBackground) {
+              
